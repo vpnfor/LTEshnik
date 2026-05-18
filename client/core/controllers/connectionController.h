@@ -67,6 +67,7 @@ signals:
     void closeConnectionRequested();
     void setConnectionStateRequested(Vpn::ConnectionState state);
     void killSwitchModeChangedRequested(bool enabled);
+    void serverSwitchFailed();
 
 #ifdef Q_OS_ANDROID
     void restoreConnectionRequested();

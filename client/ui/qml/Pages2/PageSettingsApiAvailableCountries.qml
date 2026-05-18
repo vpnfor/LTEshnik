@@ -184,15 +184,11 @@ PageType {
                     imageSource: "qrc:/images/controls/download.svg"
 
                     checked: index === ApiCountryModel.currentIndex
-                    checkable: !ConnectionController.isConnected
+                    checkable: !ConnectionController.isConnectionInProgress
 
                     onClicked: {
                         if (ConnectionController.isConnectionInProgress) {
-                            PageController.showNotificationMessage(qsTr("Unable change server location while trying to make an active connection"))
-                            return
-                        }
-                        if (ConnectionController.isConnected) {
-                            PageController.showNotificationMessage(qsTr("Unable change server location while there is an active connection"))
+                            PageController.showNotificationMessage(qsTr("Unable to change server location while connection is in progress"))
                             return
                         }
 
@@ -202,6 +198,8 @@ PageType {
                             ApiCountryModel.currentIndex = index
                             if (!SubscriptionUiController.updateServiceFromGateway(ServersUiController.getServerId(ServersUiController.processedServerIndex), countryCode, countryName)) {
                                 ApiCountryModel.currentIndex = prevIndex
+                            } else if (ConnectionController.isConnected) {
+                                ConnectionController.openConnection()
                             }
                             PageController.showBusyIndicator(false)
                         }
