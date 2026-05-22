@@ -48,6 +48,7 @@ public slots:
     bool importTrialFromGateway(const QString &email);
     bool updateServiceFromGateway(const QString &serverId, const QString &newCountryCode, const QString &newCountryName,
                                   bool reloadServiceConfig = false);
+    void revertLastCountryChange();
     bool deactivateDevice(const QString &serverId);
     bool deactivateExternalDevice(const QString &serverId, const QString &uuid, const QString &serverCountryCode);
 
@@ -104,6 +105,9 @@ private:
     ApiCountryModel* m_apiCountryModel;
     ApiDevicesModel* m_apiDevicesModel;
     SettingsController* m_settingsController;
+
+    QString m_previousCountryServerId;
+    std::optional<ApiV2ServerConfig> m_previousApiV2Config;
 };
 
 #endif // SUBSCRIPTIONUICONTROLLER_H
