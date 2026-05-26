@@ -5,6 +5,7 @@
 #include <QUuid>
 
 #include "core/controllers/coreController.h"
+#include "ui/controllers/connectionUiController.h"
 #include "core/models/api/apiV2ServerConfig.h"
 #include "core/models/api/apiConfig.h"
 #include "core/utils/constants/configKeys.h"
@@ -15,10 +16,11 @@
 
 using namespace amnezia;
 
-// AwgSwitchTimeoutMs is set to 1000ms in connectionUiController.h for testing.
-// onAwgStateTimeout fires a QTimer::singleShot(1000) before emitting signals.
-// Total wait: timeout + singleShot + margin = 1000 + 1000 + 1000 = 3000ms.
-static constexpr int kTestWaitMs = 3500;
+// Total wait: kAwgSwitchTimeoutMs + singleShot(1000ms) + margin(1500ms)
+static const int kTestWaitMs = ConnectionUiController::kAwgSwitchTimeoutMs + 1000 + 1500;
+// Simulated disconnect fires shortly after kAwgSwitchTimeoutMs so the
+// singleShot(1000) guard inside onAwgStateTimeout sees isConnectionInProgress == false.
+static const int kSimDisconnectMs = ConnectionUiController::kAwgSwitchTimeoutMs + 200;
 
 class TestAwgAutoSwitch : public QObject
 {
@@ -113,16 +115,34 @@ private slots:
         QSignalSpy protocolSpy(m_coreController->m_connectionUiController,
                                &ConnectionUiController::requestSetCurrentProtocol);
 
-        // 3. Simulate AWG connection stuck in Connecting state
+        // 3. Verify preconditions before triggering
+        {
+            const QString defId = m_coreController->m_serversController->getDefaultServerId();
+            qDebug() << "[AWG test] defaultServerId:" << defId;
+
+            const DockerContainer defContainer = m_coreController->m_serversController->getDefaultContainer(defId);
+            qDebug() << "[AWG test] defaultContainer:" << static_cast<int>(defContainer)
+                     << "(Awg ==" << static_cast<int>(DockerContainer::Awg) << ")";
+
+            const auto v2 = m_coreController->m_serversController->apiV2Config(defId);
+            qDebug() << "[AWG test] hasV2Config:" << v2.has_value();
+            if (v2.has_value()) {
+                qDebug() << "[AWG test] isPremium:" << v2->isPremium()
+                         << "isExternalPremium:" << v2->isExternalPremium()
+                         << "serviceProtocol:" << v2->serviceProtocol();
+            }
+        }
+
+        // Simulate AWG connection stuck in Connecting state
         m_coreController->m_connectionUiController->onConnectionStateChanged(
             Vpn::ConnectionState::Connecting);
 
         // 4a. After kAwgSwitchTimeoutMs the timer fires and calls closeConnection().
         //     The VPN stub never transitions to Disconnected on its own, so
         //     onAwgStateTimeout's singleShot(1000) guard (isConnectionInProgress) would
-        //     return early. Simulate the VPN disconnect at ~1200ms so the guard is cleared
-        //     before the singleShot fires at ~2000ms.
-        QTimer::singleShot(1200, m_coreController->m_connectionUiController,
+        //     return early. Simulate the VPN disconnect at kAwgSwitchTimeoutMs+200ms so
+        //     the guard is cleared before the singleShot fires.
+        QTimer::singleShot(kSimDisconnectMs, m_coreController->m_connectionUiController,
                            [this]() {
                                m_coreController->m_connectionUiController->onConnectionStateChanged(
                                    Vpn::ConnectionState::Disconnected);
@@ -171,8 +191,8 @@ private slots:
         m_coreController->m_connectionUiController->onConnectionStateChanged(
             Vpn::ConnectionState::Connecting);
 
-        // Simulate disconnect at 1200ms so the guard doesn't mask a real signal
-        QTimer::singleShot(1200, m_coreController->m_connectionUiController,
+        // Simulate disconnect at kAwgSwitchTimeoutMs+200ms so the guard doesn't mask a real signal
+        QTimer::singleShot(kSimDisconnectMs, m_coreController->m_connectionUiController,
                            [this]() {
                                m_coreController->m_connectionUiController->onConnectionStateChanged(
                                    Vpn::ConnectionState::Disconnected);

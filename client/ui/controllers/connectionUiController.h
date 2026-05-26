@@ -65,10 +65,11 @@ signals:
                                          const QString &newCountryName, bool reloadServiceConfig);
     void requestSetProcessedServer(const QString &serverId);
 
+public:
+    static constexpr int kAwgSwitchTimeoutMs = 10000;
+
 private:
     Vpn::ConnectionState getCurrentConnectionState();
-
-    static constexpr int kAwgSwitchTimeoutMs = 10000;
 
     QTimer m_awgStateTimer;
     ConnectionController* m_connectionController;
