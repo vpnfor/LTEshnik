@@ -131,6 +131,15 @@ target_link_libraries(test_self_hosted_server_setup PRIVATE
     test_common
 )
 
+add_executable(test_awg_auto_switch
+    testAwgAutoSwitch.cpp
+)
+
+target_link_libraries(test_awg_auto_switch PRIVATE
+    Qt6::Test
+    test_common
+)
+
 enable_testing()
 add_test(NAME ImportExportTest COMMAND test_import_export)
 add_test(NAME MultipleImportsTest COMMAND test_multiple_imports)
@@ -143,3 +152,4 @@ add_test(NAME ComplexOperationsTest COMMAND test_complex_operations)
 add_test(NAME SettingsSignalsTest COMMAND test_settings_signals)
 add_test(NAME UiServersModelAndControllerTest COMMAND test_ui_servers_model_and_controller)
 add_test(NAME SelfHostedServerSetupTest COMMAND test_self_hosted_server_setup)
+add_test(NAME AwgAutoSwitchTest COMMAND test_awg_auto_switch)
