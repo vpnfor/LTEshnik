@@ -255,47 +255,16 @@ PageType {
                     && root.isSubscriptionRenewalAvailable && !root.isInAppPurchase
             }
 
-            SwitcherType {
-                id: switcher
-
-                readonly property bool isVlessProtocol: SubscriptionUiController.isVlessProtocol(ServersUiController.getServerId(ServersUiController.processedServerIndex))
-                readonly property bool isProtocolSwitchBlocked: ServersModel.isDefaultServerCurrentlyProcessed() && ConnectionController.isConnected
-
-                Layout.fillWidth: true
-                Layout.topMargin: 24
-                Layout.rightMargin: 16
-                Layout.leftMargin: 16
-                Layout.bottomMargin: 24
-
-                visible: ApiAccountInfoModel.data("isProtocolSelectionSupported")
-                enabled: !switcher.isProtocolSwitchBlocked
-
-                text: qsTr("Use VLESS protocol")
-                checked: switcher.isVlessProtocol
-                onToggled: function() {
-                    if (ServersUiController.isDefaultServerCurrentlyProcessed() && ConnectionController.isConnected) {
-                        PageController.showNotificationMessage(qsTr("Cannot change protocol during active connection"))
-                    } else {
-                        PageController.showBusyIndicator(true)
-                        SubscriptionUiController.setCurrentProtocol(ServersUiController.getServerId(ServersUiController.processedServerIndex), switcher.isVlessProtocol ? "awg" : "vless")
-                        SubscriptionUiController.updateServiceFromGateway(ServersUiController.getServerId(ServersUiController.processedServerIndex), "", "", true)
-                        PageController.showBusyIndicator(false)
-                    }
-                }
-            }
-
-            DividerType {
-                visible: footer.isVisibleForAmneziaFree
-            }
 
 
             WarningType {
                 id: warning
 
-                Layout.topMargin: 24
+                Layout.topMargin: visible ? 24 : 0
                 Layout.rightMargin: 16
                 Layout.leftMargin: 16
                 Layout.fillWidth: true
+                Layout.preferredHeight: visible ? implicitHeight : 0
 
                 backGroundColor: AmneziaStyle.color.translucentRichBrown
 
@@ -316,7 +285,7 @@ PageType {
                 id: connectionSwitcher
 
                 Layout.fillWidth: true
-                Layout.topMargin: warning.visible ? 16 : 32
+                Layout.topMargin: warning.visible ? 16 : 0
                 text: qsTr("Connection")
                 descriptionText: qsTr("Protocol selection and local proxy setup")
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"

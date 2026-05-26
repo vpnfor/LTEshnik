@@ -82,6 +82,7 @@
 #endif
 
 class CoreSignalHandlers;
+class TestAwgAutoSwitch;
 class TestMultipleImports;
 class TestAdminSelfHostedExport;
 class TestServerEdit;
@@ -98,6 +99,7 @@ class CoreController : public QObject
 {
     Q_OBJECT
     friend class CoreSignalHandlers;
+    friend class TestAwgAutoSwitch;
     friend class TestMultipleImports;
     friend class TestAdminSelfHostedExport;
     friend class TestServerEdit;
