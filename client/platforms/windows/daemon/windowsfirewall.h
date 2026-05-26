@@ -15,6 +15,7 @@
 
 #include <QByteArray>
 #include <QHostAddress>
+#include <QMap>
 #include <QObject>
 #include <QString>
 
@@ -38,21 +39,24 @@ class WindowsFirewall final : public QObject {
   static WindowsFirewall* create(QObject* parent);
   ~WindowsFirewall() override;
 
-  bool enableInterface(int vpnAdapterIndex);
+  bool enableInterface(int vpnAdapterIndex, const QString& ifname = QString());
   bool enableLanBypass(const QList<IPAddress>& ranges);
   bool enablePeerTraffic(const InterfaceConfig& config);
   bool disablePeerTraffic(const QString& pubkey);
   bool disableKillSwitch();
+  bool disableKillSwitchForTunnel(const QString& ifname);
   bool allowAllTraffic();
-  bool allowTrafficRange(const QStringList& ranges);
+  bool allowTrafficRange(const QStringList& ranges, const QString& ifname = QString());
 
  private:
   static bool initSublayer();
   WindowsFirewall(HANDLE session, QObject* parent);
   HANDLE m_sessionHandle;
   bool m_init = false;
-  QList<uint64_t> m_activeRules;
+  QList<uint64_t> m_globalRules;
+  QMap<QString, QList<uint64_t>> m_tunnelRules;
   QMultiMap<QString, uint64_t> m_peerRules;
+  QString m_currentScopeIfname;
 
   bool allowTrafficForAppOnAll(const QString& exePath, int weight,
                                const QString& title);

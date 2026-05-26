@@ -20,8 +20,7 @@ public:
                                  const QString &remoteAddress);
 
     void flushAll();
-    bool allowEndpoint(const QString &remoteAddress);
-    void revokeEndpoint(const QString &remoteAddress);
+    bool allowEndpoint(const QString &remoteAddress, const QString &ifname = QString());
     void applyFirewall(const QString &vpnGateway, const QString &vpnLocalAddress);
 
     void reserve(Tunnel* tunnel);
@@ -40,6 +39,7 @@ private:
     QJsonObject m_config;
     bool m_ipv6RoutingStopped = false;
     QStringList m_allowedEndpoints;
+    QString m_pendingFirewallRevoke;
 };
 
 #endif // VPNTRAFFICGUARD_H

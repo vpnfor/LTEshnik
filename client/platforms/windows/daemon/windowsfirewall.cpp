@@ -159,18 +159,20 @@ bool WindowsFirewall::initSublayer() {
   return true;
 }
 
-bool WindowsFirewall::enableInterface(int vpnAdapterIndex) {
+bool WindowsFirewall::enableInterface(int vpnAdapterIndex, const QString& ifname) {
 // Checks if the FW_Rule was enabled succesfully,
 // disables the whole killswitch and returns false if not.
 #define FW_OK(rule)                                                       \
   {                                                                       \
     auto result = FwpmTransactionBegin(m_sessionHandle, NULL);            \
     if (result != ERROR_SUCCESS) {                                        \
+      m_currentScopeIfname.clear();                                       \
       disableKillSwitch();                                                \
       return false;                                                       \
     }                                                                     \
     if (!rule) {                                                          \
       FwpmTransactionAbort0(m_sessionHandle);                             \
+      m_currentScopeIfname.clear();                                       \
       disableKillSwitch();                                                \
       return false;                                                       \
     }                                                                     \
@@ -178,35 +180,47 @@ bool WindowsFirewall::enableInterface(int vpnAdapterIndex) {
     if (result != ERROR_SUCCESS) {                                        \
       logger.error() << "FwpmTransactionCommit0 failed. Return value:.\n" \
                      << result;                                           \
+      m_currentScopeIfname.clear();                                       \
       return false;                                                       \
     }                                                                     \
   }
 
-  logger.info() << "Enabling Killswitch Using Adapter:" << vpnAdapterIndex;
+  logger.info() << "Enabling Killswitch Using Adapter:" << vpnAdapterIndex
+                << "ifname:" << ifname;
+
+  m_currentScopeIfname = ifname;
   if (vpnAdapterIndex < 0)
   {
     IPAddress allv4("0.0.0.0/0");
     if (!blockTrafficTo(allv4, MED_WEIGHT,
                         "Block Internet", "killswitch")) {
+        m_currentScopeIfname.clear();
         return false;
     }
     IPAddress allv6("::/0");
     if (!blockTrafficTo(allv6, MED_WEIGHT,
                         "Block Internet", "killswitch")) {
+      m_currentScopeIfname.clear();
       return false;
     }
   } else
   FW_OK(allowTrafficOfAdapter(vpnAdapterIndex, MED_WEIGHT,
                                   "Allow usage of VPN Adapter"));
-  FW_OK(allowDHCPTraffic(MED_WEIGHT, "Allow DHCP Traffic"));
-  FW_OK(allowHyperVTraffic(MAX_WEIGHT, "Allow Hyper-V Traffic"));
-  FW_OK(allowTrafficForAppOnAll(getCurrentPath(), MAX_WEIGHT,
-                                "Allow all for AmneziaVPN.exe"));
-  FW_OK(blockTrafficOnPort(53, MED_WEIGHT, "Block all DNS"));
-  FW_OK(allowLoopbackTraffic(MED_WEIGHT,
-                             "Allow Loopback traffic on device %1"));
 
-  logger.debug() << "Killswitch on! Rules:" << m_activeRules.length();
+  m_currentScopeIfname.clear();
+  if (m_globalRules.isEmpty()) {
+    FW_OK(allowDHCPTraffic(MED_WEIGHT, "Allow DHCP Traffic"));
+    FW_OK(allowHyperVTraffic(MAX_WEIGHT, "Allow Hyper-V Traffic"));
+    FW_OK(allowTrafficForAppOnAll(getCurrentPath(), MAX_WEIGHT,
+                                  "Allow all for AmneziaVPN.exe"));
+    FW_OK(blockTrafficOnPort(53, MED_WEIGHT, "Block all DNS"));
+    FW_OK(allowLoopbackTraffic(MED_WEIGHT,
+                               "Allow Loopback traffic on device %1"));
+  }
+
+  logger.debug() << "Killswitch on! Globals:" << m_globalRules.length()
+                 << "Tunnel[" << ifname
+                 << "]:" << m_tunnelRules.value(ifname).length();
   return true;
 #undef FW_OK
 }
@@ -242,7 +256,10 @@ bool WindowsFirewall::enableLanBypass(const QList<IPAddress>& ranges) {
 }
 
 // Allow unprotected traffic sent to the following address ranges.
-bool WindowsFirewall::allowTrafficRange(const QStringList& ranges) {
+bool WindowsFirewall::allowTrafficRange(const QStringList& ranges, const QString& ifname) {
+  m_currentScopeIfname = ifname;
+  auto scopeGuard = qScopeGuard([this] { m_currentScopeIfname.clear(); });
+
   // Start the firewall transaction
   auto result = FwpmTransactionBegin(m_sessionHandle, NULL);
   if (result != ERROR_SUCCESS) {
@@ -255,7 +272,7 @@ bool WindowsFirewall::allowTrafficRange(const QStringList& ranges) {
   });
 
   for (const QString& addr : ranges) {
-    logger.debug() << "Allow killswitch exclude: " << addr;
+    logger.debug() << "Allow killswitch exclude: " << addr << "ifname:" << ifname;
     if (!allowTrafficTo(QHostAddress(addr), HIGH_WEIGHT, "Allow killswitch bypass traffic")) {
       return false;
     }
@@ -273,6 +290,9 @@ bool WindowsFirewall::allowTrafficRange(const QStringList& ranges) {
 
 
 bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
+  m_currentScopeIfname = config.m_ifname;
+  auto scopeGuard = qScopeGuard([this] { m_currentScopeIfname.clear(); });
+
   // Start the firewall transaction
   auto result = FwpmTransactionBegin(m_sessionHandle, NULL);
   if (result != ERROR_SUCCESS) {
@@ -404,7 +424,13 @@ bool WindowsFirewall::allowAllTraffic() {
       FwpmFilterDeleteById0(m_sessionHandle, filterID);
     }
 
-    for (const auto& filterID : qAsConst(m_activeRules)) {
+    for (const auto& bucket : qAsConst(m_tunnelRules)) {
+      for (const auto& filterID : bucket) {
+        FwpmFilterDeleteById0(m_sessionHandle, filterID);
+      }
+    }
+
+    for (const auto& filterID : qAsConst(m_globalRules)) {
       FwpmFilterDeleteById0(m_sessionHandle, filterID);
     }
 
@@ -416,9 +442,36 @@ bool WindowsFirewall::allowAllTraffic() {
       return false;
     }
     m_peerRules.clear();
-    m_activeRules.clear();
+    m_tunnelRules.clear();
+    m_globalRules.clear();
     logger.debug() << "Firewall Disabled!";
     return true;
+}
+
+bool WindowsFirewall::disableKillSwitchForTunnel(const QString& ifname) {
+  if (ifname.isEmpty() || !m_tunnelRules.contains(ifname)) {
+    return true;
+  }
+
+  auto result = FwpmTransactionBegin(m_sessionHandle, NULL);
+  if (result != ERROR_SUCCESS) {
+    logger.error() << "FwpmTransactionBegin0 failed. Return value:" << result;
+    return false;
+  }
+
+  const QList<uint64_t> filters = m_tunnelRules.take(ifname);
+  logger.info() << "Disabling killswitch filters for tunnel" << ifname
+                << "count:" << filters.length();
+  for (const auto& filterID : filters) {
+    FwpmFilterDeleteById0(m_sessionHandle, filterID);
+  }
+
+  result = FwpmTransactionCommit0(m_sessionHandle);
+  if (result != ERROR_SUCCESS) {
+    logger.error() << "FwpmTransactionCommit0 failed. Return value:" << result;
+    return false;
+  }
+  return true;
 }
 
 bool WindowsFirewall::allowTrafficForAppOnAll(const QString& exePath,
@@ -987,10 +1040,12 @@ bool WindowsFirewall::enableFilter(FWPM_FILTER0* filter, const QString& title,
     return false;
   }
   logger.info() << "Filter added: " << title << ":" << description;
-  if (peer.isEmpty()) {
-    m_activeRules.append(filterID);
-  } else {
+  if (!m_currentScopeIfname.isEmpty()) {
+    m_tunnelRules[m_currentScopeIfname].append(filterID);
+  } else if (!peer.isEmpty()) {
     m_peerRules.insert(peer, filterID);
+  } else {
+    m_globalRules.append(filterID);
   }
   return true;
 }
