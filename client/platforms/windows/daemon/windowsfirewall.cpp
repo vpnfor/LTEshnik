@@ -166,13 +166,11 @@ bool WindowsFirewall::enableInterface(int vpnAdapterIndex, const QString& ifname
   {                                                                       \
     auto result = FwpmTransactionBegin(m_sessionHandle, NULL);            \
     if (result != ERROR_SUCCESS) {                                        \
-      m_currentScopeIfname.clear();                                       \
       disableKillSwitch();                                                \
       return false;                                                       \
     }                                                                     \
     if (!rule) {                                                          \
       FwpmTransactionAbort0(m_sessionHandle);                             \
-      m_currentScopeIfname.clear();                                       \
       disableKillSwitch();                                                \
       return false;                                                       \
     }                                                                     \
@@ -180,7 +178,6 @@ bool WindowsFirewall::enableInterface(int vpnAdapterIndex, const QString& ifname
     if (result != ERROR_SUCCESS) {                                        \
       logger.error() << "FwpmTransactionCommit0 failed. Return value:.\n" \
                      << result;                                           \
-      m_currentScopeIfname.clear();                                       \
       return false;                                                       \
     }                                                                     \
   }
@@ -188,34 +185,31 @@ bool WindowsFirewall::enableInterface(int vpnAdapterIndex, const QString& ifname
   logger.info() << "Enabling Killswitch Using Adapter:" << vpnAdapterIndex
                 << "ifname:" << ifname;
 
-  m_currentScopeIfname = ifname;
-  if (vpnAdapterIndex < 0)
-  {
+  QList<uint64_t>& perTunnel = ifname.isEmpty() ? m_globalRules
+                                                : m_tunnelRules[ifname];
+  if (vpnAdapterIndex < 0) {
     IPAddress allv4("0.0.0.0/0");
-    if (!blockTrafficTo(allv4, MED_WEIGHT,
-                        "Block Internet", "killswitch")) {
-        m_currentScopeIfname.clear();
-        return false;
-    }
-    IPAddress allv6("::/0");
-    if (!blockTrafficTo(allv6, MED_WEIGHT,
-                        "Block Internet", "killswitch")) {
-      m_currentScopeIfname.clear();
+    if (!blockTrafficTo(allv4, MED_WEIGHT, "Block Internet", perTunnel)) {
       return false;
     }
-  } else
-  FW_OK(allowTrafficOfAdapter(vpnAdapterIndex, MED_WEIGHT,
-                                  "Allow usage of VPN Adapter"));
+    IPAddress allv6("::/0");
+    if (!blockTrafficTo(allv6, MED_WEIGHT, "Block Internet", perTunnel)) {
+      return false;
+    }
+  } else {
+    FW_OK(allowTrafficOfAdapter(vpnAdapterIndex, MED_WEIGHT,
+                                "Allow usage of VPN Adapter", perTunnel));
+  }
 
-  m_currentScopeIfname.clear();
   if (m_globalRules.isEmpty()) {
-    FW_OK(allowDHCPTraffic(MED_WEIGHT, "Allow DHCP Traffic"));
-    FW_OK(allowHyperVTraffic(MAX_WEIGHT, "Allow Hyper-V Traffic"));
+    FW_OK(allowDHCPTraffic(MED_WEIGHT, "Allow DHCP Traffic", m_globalRules));
+    FW_OK(allowHyperVTraffic(MAX_WEIGHT, "Allow Hyper-V Traffic", m_globalRules));
     FW_OK(allowTrafficForAppOnAll(getCurrentPath(), MAX_WEIGHT,
-                                  "Allow all for AmneziaVPN.exe"));
-    FW_OK(blockTrafficOnPort(53, MED_WEIGHT, "Block all DNS"));
+                                  "Allow all for AmneziaVPN.exe", m_globalRules));
+    FW_OK(blockTrafficOnPort(53, MED_WEIGHT, "Block all DNS", m_globalRules));
     FW_OK(allowLoopbackTraffic(MED_WEIGHT,
-                               "Allow Loopback traffic on device %1"));
+                               "Allow Loopback traffic on device %1",
+                               m_globalRules));
   }
 
   logger.debug() << "Killswitch on! Globals:" << m_globalRules.length()
@@ -240,7 +234,8 @@ bool WindowsFirewall::enableLanBypass(const QList<IPAddress>& ranges) {
 
   // Blocking unprotected traffic
   for (const IPAddress& prefix : ranges) {
-    if (!allowTrafficTo(prefix, LOW_WEIGHT + 1, "Allow LAN bypass traffic")) {
+    if (!allowTrafficTo(prefix, LOW_WEIGHT + 1, "Allow LAN bypass traffic",
+                        m_globalRules)) {
       return false;
     }
   }
@@ -257,8 +252,8 @@ bool WindowsFirewall::enableLanBypass(const QList<IPAddress>& ranges) {
 
 // Allow unprotected traffic sent to the following address ranges.
 bool WindowsFirewall::allowTrafficRange(const QStringList& ranges, const QString& ifname) {
-  m_currentScopeIfname = ifname;
-  auto scopeGuard = qScopeGuard([this] { m_currentScopeIfname.clear(); });
+  QList<uint64_t>& target = ifname.isEmpty() ? m_globalRules
+                                             : m_tunnelRules[ifname];
 
   // Start the firewall transaction
   auto result = FwpmTransactionBegin(m_sessionHandle, NULL);
@@ -273,7 +268,8 @@ bool WindowsFirewall::allowTrafficRange(const QStringList& ranges, const QString
 
   for (const QString& addr : ranges) {
     logger.debug() << "Allow killswitch exclude: " << addr << "ifname:" << ifname;
-    if (!allowTrafficTo(QHostAddress(addr), HIGH_WEIGHT, "Allow killswitch bypass traffic")) {
+    if (!allowTrafficTo(QHostAddress(addr), HIGH_WEIGHT,
+                        "Allow killswitch bypass traffic", target)) {
       return false;
     }
   }
@@ -290,8 +286,9 @@ bool WindowsFirewall::allowTrafficRange(const QStringList& ranges, const QString
 
 
 bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
-  m_currentScopeIfname = config.m_ifname;
-  auto scopeGuard = qScopeGuard([this] { m_currentScopeIfname.clear(); });
+  QList<uint64_t>& target = config.m_ifname.isEmpty()
+                              ? m_globalRules
+                              : m_tunnelRules[config.m_ifname];
 
   // Start the firewall transaction
   auto result = FwpmTransactionBegin(m_sessionHandle, NULL);
@@ -308,12 +305,12 @@ bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
   logger.info() << "Enabling traffic for peer"
                 << config.m_serverPublicKey;
   if (!blockTrafficTo(config.m_allowedIPAddressRanges, LOW_WEIGHT,
-                      "Block Internet", config.m_serverPublicKey)) {
+                      "Block Internet", target)) {
     return false;
   }
   if (!config.m_primaryDnsServer.isEmpty()) {
     if (!allowTrafficTo(QHostAddress(config.m_primaryDnsServer), 53, HIGH_WEIGHT,
-                        "Allow DNS-Server", config.m_serverPublicKey)) {
+                        "Allow DNS-Server", target)) {
       return false;
     }
     // In some cases, we might configure a 2nd DNS server for IPv6, however
@@ -322,7 +319,7 @@ bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
     if (config.m_primaryDnsServer == config.m_serverIpv4Gateway) {
       if (!allowTrafficTo(QHostAddress(config.m_serverIpv6Gateway), 53,
                           HIGH_WEIGHT, "Allow extra IPv6 DNS-Server",
-                          config.m_serverPublicKey)) {
+                          target)) {
         return false;
       }
     }
@@ -330,7 +327,7 @@ bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
 
   if (!config.m_secondaryDnsServer.isEmpty()) {
     if (!allowTrafficTo(QHostAddress(config.m_secondaryDnsServer), 53, HIGH_WEIGHT,
-                        "Allow DNS-Server", config.m_serverPublicKey)) {
+                        "Allow DNS-Server", target)) {
       return false;
     }
     // In some cases, we might configure a 2nd DNS server for IPv6, however
@@ -339,7 +336,7 @@ bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
     if (config.m_secondaryDnsServer == config.m_serverIpv4Gateway) {
       if (!allowTrafficTo(QHostAddress(config.m_serverIpv6Gateway), 53,
                           HIGH_WEIGHT, "Allow extra IPv6 DNS-Server",
-                          config.m_serverPublicKey)) {
+                          target)) {
         return false;
       }
     }
@@ -348,7 +345,7 @@ bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
   for (const QString& dns : config.m_allowedDnsServers) {
     logger.debug() << "Allow DNS: " << dns;
     if (!allowTrafficTo(QHostAddress(dns), 53, HIGH_WEIGHT,
-                        "Allow DNS-Server", config.m_serverPublicKey)) {
+                        "Allow DNS-Server", target)) {
       return false;
     }
   }
@@ -358,7 +355,7 @@ bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
       logger.debug() << "excludedAddresses range: " << i;
 
       if (!allowTrafficTo(i, HIGH_WEIGHT,
-                          "Allow Ecxlude route", config.m_serverPublicKey)) {
+                          "Allow Ecxlude route", target)) {
         return false;
       }
     }
@@ -371,35 +368,6 @@ bool WindowsFirewall::enablePeerTraffic(const InterfaceConfig& config) {
   }
 
   cleanup.dismiss();
-  return true;
-}
-
-bool WindowsFirewall::disablePeerTraffic(const QString& pubkey) {
-  auto result = FwpmTransactionBegin(m_sessionHandle, NULL);
-  auto cleanup = qScopeGuard([&] {
-    if (result != ERROR_SUCCESS) {
-      FwpmTransactionAbort0(m_sessionHandle);
-    }
-  });
-  if (result != ERROR_SUCCESS) {
-    logger.error() << "FwpmTransactionBegin0 failed. Return value:.\n"
-                   << result;
-    return false;
-  }
-
-  logger.info() << "Disabling traffic for peer" << pubkey;
-  for (const auto& filterID : m_peerRules.values(pubkey)) {
-    FwpmFilterDeleteById0(m_sessionHandle, filterID);
-    m_peerRules.remove(pubkey, filterID);
-  }
-
-  // Commit!
-  result = FwpmTransactionCommit0(m_sessionHandle);
-  if (result != ERROR_SUCCESS) {
-    logger.error() << "FwpmTransactionCommit0 failed. Return value:.\n"
-                   << result;
-    return false;
-  }
   return true;
 }
 
@@ -420,10 +388,6 @@ bool WindowsFirewall::allowAllTraffic() {
       return false;
     }
 
-    for (const auto& filterID : m_peerRules.values()) {
-      FwpmFilterDeleteById0(m_sessionHandle, filterID);
-    }
-
     for (const auto& bucket : qAsConst(m_tunnelRules)) {
       for (const auto& filterID : bucket) {
         FwpmFilterDeleteById0(m_sessionHandle, filterID);
@@ -441,7 +405,6 @@ bool WindowsFirewall::allowAllTraffic() {
                      << result;
       return false;
     }
-    m_peerRules.clear();
     m_tunnelRules.clear();
     m_globalRules.clear();
     logger.debug() << "Firewall Disabled!";
@@ -476,7 +439,8 @@ bool WindowsFirewall::disableKillSwitchForTunnel(const QString& ifname) {
 
 bool WindowsFirewall::allowTrafficForAppOnAll(const QString& exePath,
                                               int weight,
-                                              const QString& title) {
+                                              const QString& title,
+                                              QList<uint64_t>& target) {
   DWORD result = ERROR_SUCCESS;
   Q_ASSERT(weight <= 15);
 
@@ -513,7 +477,7 @@ bool WindowsFirewall::allowTrafficForAppOnAll(const QString& exePath,
   {
     QString desc("Permit (out) IPv4 Traffic of: " + appName);
     filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
-    if (!enableFilter(&filter, title, desc)) {
+    if (!enableFilter(&filter, title, desc, target)) {
       return false;
     }
   }
@@ -521,7 +485,7 @@ bool WindowsFirewall::allowTrafficForAppOnAll(const QString& exePath,
   {
     QString desc("Permit (in) IPv4 Traffic of: " + appName);
     filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4;
-    if (!enableFilter(&filter, title, desc)) {
+    if (!enableFilter(&filter, title, desc, target)) {
       return false;
     }
   }
@@ -529,7 +493,8 @@ bool WindowsFirewall::allowTrafficForAppOnAll(const QString& exePath,
 }
 
 bool WindowsFirewall::allowTrafficOfAdapter(int networkAdapter, uint8_t weight,
-                                            const QString& title) {
+                                            const QString& title,
+                                            QList<uint64_t>& target) {
   FWPM_FILTER_CONDITION0 conds;
   // Condition: Request must be targeting the TUN interface
   conds.fieldKey = FWPM_CONDITION_INTERFACE_INDEX;
@@ -551,25 +516,25 @@ bool WindowsFirewall::allowTrafficOfAdapter(int networkAdapter, uint8_t weight,
   // #1 Permit outbound IPv4 traffic.
   filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
   if (!enableFilter(&filter, title,
-                    description.arg("out").arg(networkAdapter))) {
+                    description.arg("out").arg(networkAdapter), target)) {
     return false;
   }
   // #2 Permit inbound IPv4 traffic.
   filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4;
   if (!enableFilter(&filter, title,
-                    description.arg("in").arg(networkAdapter))) {
+                    description.arg("in").arg(networkAdapter), target)) {
     return false;
   }
   // #3 Permit outbound IPv6 traffic.
   filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
   if (!enableFilter(&filter, title,
-                    description.arg("out").arg(networkAdapter))) {
+                    description.arg("out").arg(networkAdapter), target)) {
     return false;
   }
   // #4 Permit inbound IPv6 traffic.
   filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6;
   if (!enableFilter(&filter, title,
-                    description.arg("in").arg(networkAdapter))) {
+                    description.arg("in").arg(networkAdapter), target)) {
     return false;
   }
   return true;
@@ -577,7 +542,7 @@ bool WindowsFirewall::allowTrafficOfAdapter(int networkAdapter, uint8_t weight,
 
 bool WindowsFirewall::allowTrafficTo(const IPAddress& addr, int weight,
                                      const QString& title,
-                                     const QString& peer) {
+                                     QList<uint64_t>& target) {
   GUID layerKeyOut;
   GUID layerKeyIn;
   if (addr.type() == QAbstractSocket::IPv4Protocol) {
@@ -615,11 +580,11 @@ bool WindowsFirewall::allowTrafficTo(const IPAddress& addr, int weight,
   // Send the filters down to the firewall.
   QString description = "Permit traffic %1 " + addr.toString();
   filter.layerKey = layerKeyOut;
-  if (!enableFilter(&filter, title, description.arg("to"), peer)) {
+  if (!enableFilter(&filter, title, description.arg("to"), target)) {
     return false;
   }
   filter.layerKey = layerKeyIn;
-  if (!enableFilter(&filter, title, description.arg("from"), peer)) {
+  if (!enableFilter(&filter, title, description.arg("from"), target)) {
     return false;
   }
   return true;
@@ -627,7 +592,7 @@ bool WindowsFirewall::allowTrafficTo(const IPAddress& addr, int weight,
 
 bool WindowsFirewall::allowTrafficTo(const QHostAddress& targetIP, uint port,
                                      int weight, const QString& title,
-                                     const QString& peer) {
+                                     QList<uint64_t>& target) {
   bool isIPv4 = targetIP.protocol() == QAbstractSocket::IPv4Protocol;
   GUID layerOut =
       isIPv4 ? FWPM_LAYER_ALE_AUTH_CONNECT_V4 : FWPM_LAYER_ALE_AUTH_CONNECT_V6;
@@ -676,19 +641,20 @@ bool WindowsFirewall::allowTrafficTo(const QHostAddress& targetIP, uint port,
   filter.layerKey = layerOut;
   if (!enableFilter(&filter, title,
                     description.arg("to").arg(targetIP.toString()).arg(port),
-                    peer)) {
+                    target)) {
     return false;
   }
   filter.layerKey = layerIn;
   if (!enableFilter(&filter, title,
                     description.arg("from").arg(targetIP.toString()).arg(port),
-                    peer)) {
+                    target)) {
     return false;
   }
   return true;
 }
 
-bool WindowsFirewall::allowDHCPTraffic(uint8_t weight, const QString& title) {
+bool WindowsFirewall::allowDHCPTraffic(uint8_t weight, const QString& title,
+                                       QList<uint64_t>& target) {
   // Allow outbound DHCPv4
   {
     FWPM_FILTER_CONDITION0 conds[4];
@@ -725,7 +691,7 @@ bool WindowsFirewall::allowDHCPTraffic(uint8_t weight, const QString& title) {
 
     filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
 
-    if (!enableFilter(&filter, title, "Allow Outbound DHCP")) {
+    if (!enableFilter(&filter, title, "Allow Outbound DHCP", target)) {
       return false;
     }
   }
@@ -758,7 +724,7 @@ bool WindowsFirewall::allowDHCPTraffic(uint8_t weight, const QString& title) {
     filter.subLayerKey = ST_FW_WINFW_BASELINE_SUBLAYER_KEY;
     filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4;
 
-    if (!enableFilter(&filter, title, "Allow inbound DHCP")) {
+    if (!enableFilter(&filter, title, "Allow inbound DHCP", target)) {
       return false;
     }
   }
@@ -793,7 +759,7 @@ bool WindowsFirewall::allowDHCPTraffic(uint8_t weight, const QString& title) {
     filter.subLayerKey = ST_FW_WINFW_BASELINE_SUBLAYER_KEY;
     filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
 
-    if (!enableFilter(&filter, title, "Allow outbound DHCPv6")) {
+    if (!enableFilter(&filter, title, "Allow outbound DHCPv6", target)) {
       return false;
     }
   }
@@ -826,7 +792,7 @@ bool WindowsFirewall::allowDHCPTraffic(uint8_t weight, const QString& title) {
     filter.weight.uint8 = weight;
     filter.subLayerKey = ST_FW_WINFW_BASELINE_SUBLAYER_KEY;
     filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6;
-    if (!enableFilter(&filter, title, "Allow inbound DHCPv6")) {
+    if (!enableFilter(&filter, title, "Allow inbound DHCPv6", target)) {
       return false;
     }
   }
@@ -834,7 +800,8 @@ bool WindowsFirewall::allowDHCPTraffic(uint8_t weight, const QString& title) {
 }
 
 // Allows the internal Hyper-V Switches to work.
-bool WindowsFirewall::allowHyperVTraffic(uint8_t weight, const QString& title) {
+bool WindowsFirewall::allowHyperVTraffic(uint8_t weight, const QString& title,
+                                         QList<uint64_t>& target) {
   FWPM_FILTER_CONDITION0 cond;
   // Condition: Request must be targeting the TUN interface
   cond.fieldKey = FWPM_CONDITION_L2_FLAGS;
@@ -854,12 +821,12 @@ bool WindowsFirewall::allowHyperVTraffic(uint8_t weight, const QString& title) {
 
   // #1 Permit Hyper-V => Hyper-V outbound.
   filter.layerKey = FWPM_LAYER_OUTBOUND_MAC_FRAME_NATIVE;
-  if (!enableFilter(&filter, title, "Permit Hyper-V => Hyper-V outbound")) {
+  if (!enableFilter(&filter, title, "Permit Hyper-V => Hyper-V outbound", target)) {
     return false;
   }
   // #2 Permit Hyper-V => Hyper-V inbound.
   filter.layerKey = FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE;
-  if (!enableFilter(&filter, title, "Permit Hyper-V => Hyper-V inbound")) {
+  if (!enableFilter(&filter, title, "Permit Hyper-V => Hyper-V inbound", target)) {
     return false;
   }
   return true;
@@ -867,7 +834,7 @@ bool WindowsFirewall::allowHyperVTraffic(uint8_t weight, const QString& title) {
 
 bool WindowsFirewall::blockTrafficTo(const IPAddress& addr, uint8_t weight,
                                      const QString& title,
-                                     const QString& peer) {
+                                     QList<uint64_t>& target) {
   QString description("Block traffic %1 %2 ");
 
   auto lower = addr.address();
@@ -905,12 +872,12 @@ bool WindowsFirewall::blockTrafficTo(const IPAddress& addr, uint8_t weight,
 
   filter.layerKey = layerKeyOut;
   if (!enableFilter(&filter, title, description.arg("to").arg(addr.toString()),
-                    peer)) {
+                    target)) {
     return false;
   }
   filter.layerKey = layerKeyIn;
   if (!enableFilter(&filter, title,
-                    description.arg("from").arg(addr.toString()), peer)) {
+                    description.arg("from").arg(addr.toString()), target)) {
     return false;
   }
   return true;
@@ -918,9 +885,9 @@ bool WindowsFirewall::blockTrafficTo(const IPAddress& addr, uint8_t weight,
 
 bool WindowsFirewall::blockTrafficTo(const QList<IPAddress>& rangeList,
                                      uint8_t weight, const QString& title,
-                                     const QString& peer) {
+                                     QList<uint64_t>& target) {
   for (auto range : rangeList) {
-    if (!blockTrafficTo(range, weight, title, peer)) {
+    if (!blockTrafficTo(range, weight, title, target)) {
       logger.info() << "Setting Range of" << range.toString() << "failed";
       return false;
     }
@@ -976,7 +943,8 @@ void WindowsFirewall::importAddress(const QHostAddress& addr,
 }
 
 bool WindowsFirewall::blockTrafficOnPort(uint port, uint8_t weight,
-                                         const QString& title) {
+                                         const QString& title,
+                                         QList<uint64_t>& target) {
   // Allow Traffic to IP with PORT using any protocol
   FWPM_FILTER_CONDITION0 conds[3];
   conds[0].fieldKey = FWPM_CONDITION_IP_PROTOCOL;
@@ -1006,20 +974,20 @@ bool WindowsFirewall::blockTrafficOnPort(uint port, uint8_t weight,
 
   QString description("Block %1 on Port %2");
   filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
-  if (!enableFilter(&filter, title, description.arg("outgoing v6").arg(port))) {
+  if (!enableFilter(&filter, title, description.arg("outgoing v6").arg(port), target)) {
     return false;
   }
   filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
-  if (!enableFilter(&filter, title, description.arg("outgoing v4").arg(port))) {
+  if (!enableFilter(&filter, title, description.arg("outgoing v4").arg(port), target)) {
     return false;
   }
 
   filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4;
-  if (!enableFilter(&filter, title, description.arg("incoming v4").arg(port))) {
+  if (!enableFilter(&filter, title, description.arg("incoming v4").arg(port), target)) {
     return false;
   }
   filter.layerKey = FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6;
-  if (!enableFilter(&filter, title, description.arg("incoming v6").arg(port))) {
+  if (!enableFilter(&filter, title, description.arg("incoming v6").arg(port), target)) {
     return false;
   }
   return true;
@@ -1027,7 +995,7 @@ bool WindowsFirewall::blockTrafficOnPort(uint port, uint8_t weight,
 
 bool WindowsFirewall::enableFilter(FWPM_FILTER0* filter, const QString& title,
                                    const QString& description,
-                                   const QString& peer) {
+                                   QList<uint64_t>& target) {
   uint64_t filterID = 0;
   auto name = title.toStdWString();
   auto desc = description.toStdWString();
@@ -1040,18 +1008,12 @@ bool WindowsFirewall::enableFilter(FWPM_FILTER0* filter, const QString& title,
     return false;
   }
   logger.info() << "Filter added: " << title << ":" << description;
-  if (!m_currentScopeIfname.isEmpty()) {
-    m_tunnelRules[m_currentScopeIfname].append(filterID);
-  } else if (!peer.isEmpty()) {
-    m_peerRules.insert(peer, filterID);
-  } else {
-    m_globalRules.append(filterID);
-  }
+  target.append(filterID);
   return true;
 }
 
-bool WindowsFirewall::allowLoopbackTraffic(uint8_t weight,
-                                           const QString& title) {
+bool WindowsFirewall::allowLoopbackTraffic(uint8_t weight, const QString& title,
+                                           QList<uint64_t>& target) {
   QList<QNetworkInterface> networkInterfaces =
       QNetworkInterface::allInterfaces();
   for (const auto& iface : networkInterfaces) {
@@ -1059,7 +1021,7 @@ bool WindowsFirewall::allowLoopbackTraffic(uint8_t weight,
       continue;
     }
     if (!allowTrafficOfAdapter(iface.index(), weight,
-                               title.arg(iface.name()))) {
+                               title.arg(iface.name()), target)) {
       return false;
     }
   }

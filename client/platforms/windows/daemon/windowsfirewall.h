@@ -42,7 +42,6 @@ class WindowsFirewall final : public QObject {
   bool enableInterface(int vpnAdapterIndex, const QString& ifname = QString());
   bool enableLanBypass(const QList<IPAddress>& ranges);
   bool enablePeerTraffic(const InterfaceConfig& config);
-  bool disablePeerTraffic(const QString& pubkey);
   bool disableKillSwitch();
   bool disableKillSwitchForTunnel(const QString& ifname);
   bool allowAllTraffic();
@@ -55,25 +54,27 @@ class WindowsFirewall final : public QObject {
   bool m_init = false;
   QList<uint64_t> m_globalRules;
   QMap<QString, QList<uint64_t>> m_tunnelRules;
-  QMultiMap<QString, uint64_t> m_peerRules;
-  QString m_currentScopeIfname;
 
   bool allowTrafficForAppOnAll(const QString& exePath, int weight,
-                               const QString& title);
+                               const QString& title, QList<uint64_t>& target);
   bool blockTrafficTo(const QList<IPAddress>& range, uint8_t weight,
-                      const QString& title, const QString& peer = QString());
+                      const QString& title, QList<uint64_t>& target);
   bool blockTrafficTo(const IPAddress& addr, uint8_t weight,
-                      const QString& title, const QString& peer = QString());
-  bool blockTrafficOnPort(uint port, uint8_t weight, const QString& title);
+                      const QString& title, QList<uint64_t>& target);
+  bool blockTrafficOnPort(uint port, uint8_t weight, const QString& title,
+                          QList<uint64_t>& target);
   bool allowTrafficTo(const IPAddress& addr, int weight, const QString& title,
-                      const QString& peer = QString());
+                      QList<uint64_t>& target);
   bool allowTrafficTo(const QHostAddress& targetIP, uint port, int weight,
-                      const QString& title, const QString& peer = QString());
+                      const QString& title, QList<uint64_t>& target);
   bool allowTrafficOfAdapter(int networkAdapter, uint8_t weight,
-                             const QString& title);
-  bool allowDHCPTraffic(uint8_t weight, const QString& title);
-  bool allowHyperVTraffic(uint8_t weight, const QString& title);
-  bool allowLoopbackTraffic(uint8_t weight, const QString& title);
+                             const QString& title, QList<uint64_t>& target);
+  bool allowDHCPTraffic(uint8_t weight, const QString& title,
+                        QList<uint64_t>& target);
+  bool allowHyperVTraffic(uint8_t weight, const QString& title,
+                          QList<uint64_t>& target);
+  bool allowLoopbackTraffic(uint8_t weight, const QString& title,
+                            QList<uint64_t>& target);
 
   // Utils
   QString getCurrentPath();
@@ -82,8 +83,7 @@ class WindowsFirewall final : public QObject {
   void importAddress(const QHostAddress& addr, OUT FWP_CONDITION_VALUE0_& value,
                      OUT QByteArray* v6DataBuffer);
   bool enableFilter(FWPM_FILTER0* filter, const QString& title,
-                    const QString& description,
-                    const QString& peer = QString());
+                    const QString& description, QList<uint64_t>& target);
 };
 
 #endif  // WINDOWSFIREWALL_H
