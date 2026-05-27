@@ -85,7 +85,9 @@ bool Daemon::activate(const QString& ifname, const InterfaceConfig& config) {
 
   // Bring up the wireguard interface if not already done.
   if (!wg->interfaceExists()) {
-    if (!wg->addInterface(config)) {
+    InterfaceConfig bringupConfig = config;
+    bringupConfig.m_deferAddressSetup = (m_primaryIfname != ifname);
+    if (!wg->addInterface(bringupConfig)) {
       logger.error() << "Interface creation failed.";
       return false;
     }
@@ -125,6 +127,13 @@ bool Daemon::setPrimary(const QString& ifname, const InterfaceConfig& config) {
 
   const QString priorPrimary = m_primaryIfname;
   m_primaryIfname = ifname;
+
+  if (!priorPrimary.isEmpty() && priorPrimary != ifname) {
+    if (WireguardUtils* oldWg = m_tunnels.value(priorPrimary)) {
+      oldWg->removeDeviceAddresses(m_connections.value(priorPrimary).m_config.m_deviceIpv4Address);
+    }
+  }
+  wg->applyDeviceAddresses(config.m_deviceIpv4Address);
 
   auto failure_guard = qScopeGuard([this, ifname, priorPrimary] {
     deactivateTunnel(ifname);
@@ -190,13 +199,14 @@ bool Daemon::parseStringList(const QJsonObject& obj, const QString& name,
   return true;
 }
 
-bool Daemon::addExclusionRoute(const QString &addr) {
+bool Daemon::addExclusionRoute(const QString &ifname, const QString &addr) {
   IPAddress prefix(addr);
   if (m_excludedAddrSet.contains(prefix)) {
     m_excludedAddrSet[prefix]++;
     return true;
   }
-  WireguardUtils* wg = primaryWgutils();
+  WireguardUtils* wg = wgutilsFor(ifname);
+  if (!wg) wg = primaryWgutils();
   if (!wg || !wg->addExclusionRoute(prefix)) {
     return false;
   }
@@ -204,7 +214,7 @@ bool Daemon::addExclusionRoute(const QString &addr) {
   return true;
 }
 
-bool Daemon::delExclusionRoute(const QString &addr) {
+bool Daemon::delExclusionRoute(const QString &ifname, const QString &addr) {
   IPAddress prefix(addr);
   if (!m_excludedAddrSet.contains(prefix)) {
     return false;
@@ -214,7 +224,8 @@ bool Daemon::delExclusionRoute(const QString &addr) {
     return true;
   }
   m_excludedAddrSet.remove(prefix);
-  WireguardUtils* wg = primaryWgutils();
+  WireguardUtils* wg = wgutilsFor(ifname);
+  if (!wg) wg = primaryWgutils();
   return wg && wg->deleteExclusionRoute(prefix);
 }
 

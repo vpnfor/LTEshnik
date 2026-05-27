@@ -115,6 +115,17 @@ bool WireguardUtilsWindows::addInterface(const InterfaceConfig& config) {
     }
   }
 
+  if (config.m_deferAddressSetup) {
+    // Wintun rejects duplicate IPv4; daemon will assign at swap time.
+    qsizetype addressStart = configString.indexOf("Address = ");
+    if (addressStart >= 0) {
+      qsizetype addressEnd = configString.indexOf('\n', addressStart);
+      if (addressEnd >= 0) {
+        configString.remove(addressStart, addressEnd - addressStart + 1);
+      }
+    }
+  }
+
   m_ifname = config.m_ifname.isEmpty() ? s_defaultInterfaceName() : config.m_ifname;
   if (!m_tunnel.start(configString, m_ifname)) {
     logger.error() << "Failed to activate the tunnel service";
@@ -140,6 +151,38 @@ bool WireguardUtilsWindows::deleteInterface() {
   }
 
   m_tunnel.stop();
+  return true;
+}
+
+bool WireguardUtilsWindows::applyDeviceAddresses(const QString& ipv4Address) {
+  const QByteArray ip = ipv4Address.section('/', 0, 0).toUtf8();
+  MIB_UNICASTIPADDRESS_ROW row;
+  InitializeUnicastIpAddressEntry(&row);
+  row.InterfaceLuid.Value = m_luid;
+  row.Address.si_family = AF_INET;
+  row.OnLinkPrefixLength = 32;
+  row.DadState = IpDadStatePreferred;
+  if (InetPtonA(AF_INET, ip.constData(), &row.Address.Ipv4.sin_addr) != 1) {
+    logger.error() << "applyDeviceAddresses: cannot parse" << ipv4Address;
+    return false;
+  }
+  DWORD r = CreateUnicastIpAddressEntry(&row);
+  logger.debug() << "Apply" << ipv4Address << "to" << m_ifname << "result:" << r;
+  return r == NO_ERROR || r == ERROR_OBJECT_ALREADY_EXISTS;
+}
+
+bool WireguardUtilsWindows::removeDeviceAddresses(const QString& ipv4Address) {
+  const QByteArray ip = ipv4Address.section('/', 0, 0).toUtf8();
+  MIB_UNICASTIPADDRESS_ROW row;
+  InitializeUnicastIpAddressEntry(&row);
+  row.InterfaceLuid.Value = m_luid;
+  row.Address.si_family = AF_INET;
+  if (InetPtonA(AF_INET, ip.constData(), &row.Address.Ipv4.sin_addr) != 1) {
+    logger.error() << "removeDeviceAddresses: cannot parse" << ipv4Address;
+    return false;
+  }
+  DWORD r = DeleteUnicastIpAddressEntry(&row);
+  logger.debug() << "Remove" << ipv4Address << "from" << m_ifname << "result:" << r;
   return true;
 }
 
