@@ -142,13 +142,6 @@ bool WindowsTunnelService::start(const QString& configData, const QString& ifnam
     }
     CloseServiceHandle(service);
     service = nullptr;
-
-    for (int i = 0; i < 30; ++i) {
-      SC_HANDLE leftover = OpenService(scm, serviceName.c_str(), SERVICE_QUERY_STATUS);
-      if (!leftover) break;
-      CloseServiceHandle(leftover);
-      Sleep(100);
-    }
   }
 
   QString serviceCmdline;
