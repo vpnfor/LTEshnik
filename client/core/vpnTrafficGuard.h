@@ -21,7 +21,7 @@ public:
 
     void flushAll();
     bool allowEndpoint(const QString &remoteAddress, const QString &ifname = QString());
-    void applyFirewall(Tunnel* tunnel, const QString &vpnGateway, const QString &vpnLocalAddress);
+    void applyKillSwitch(Tunnel* tunnel, const QString &vpnGateway, const QString &vpnLocalAddress);
 
     void reserve(Tunnel* tunnel);
     void release(Tunnel* tunnel);

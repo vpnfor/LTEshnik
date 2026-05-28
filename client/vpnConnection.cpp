@@ -261,7 +261,7 @@ void VpnConnection::createProtocolConnections()
     connect(m_vpnProtocol.data(), SIGNAL(bytesChanged(quint64, quint64)), this, SLOT(onBytesChanged(quint64, quint64)));
     connect(m_vpnProtocol.data(), &VpnProtocol::tunnelAddressesUpdated, this,
             [this](const QString& gateway, const QString& localAddress) {
-        m_trafficGuard->applyFirewall(m_active, gateway, localAddress);
+        m_trafficGuard->applyKillSwitch(nullptr, gateway, localAddress);
     });
 
     wireDaemonReconnectSignals();
@@ -584,10 +584,6 @@ void VpnConnection::onTunnelActivated()
 
     if (tunnel == m_active) {
         setConnectionState(Vpn::ConnectionState::Connected);
-        if (auto proto = m_active->protocol()) {
-            m_trafficGuard->applyFirewall(tunnel, proto->vpnGateway(),
-                                          proto->vpnLocalAddress());
-        }
     }
 }
 

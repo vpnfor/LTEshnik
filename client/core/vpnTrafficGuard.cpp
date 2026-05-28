@@ -182,7 +182,7 @@ void VpnTrafficGuard::finishFirewallHandover(Tunnel* tunnel)
 #endif
 }
 
-void VpnTrafficGuard::applyFirewall(Tunnel* tunnel, const QString &gateway, const QString &localAddress)
+void VpnTrafficGuard::applyKillSwitch(Tunnel* tunnel, const QString &gateway, const QString &localAddress)
 {
 #ifdef AMNEZIA_DESKTOP
     finishFirewallHandover(tunnel);
@@ -223,9 +223,9 @@ void VpnTrafficGuard::applyFirewall(Tunnel* tunnel, const QString &gateway, cons
             QRemoteObjectPendingReply<bool> reply = iface->enableKillSwitch(updatedConfig, 0);
             //TODO: why it takes so long?
             if (!reply.waitForFinished(5000) || !reply.returnValue()) {
-                qWarning() << "VpnTrafficGuard::applyFirewall: Failed to enable killswitch";
+                qWarning() << "VpnTrafficGuard::applyKillSwitch: Failed to enable killswitch";
             } else {
-                qDebug() << "VpnTrafficGuard::applyFirewall: Successfully enabled killswitch";
+                qDebug() << "VpnTrafficGuard::applyKillSwitch: Successfully enabled killswitch";
             }
         }
 #endif
@@ -336,6 +336,7 @@ void VpnTrafficGuard::reserve(Tunnel* tunnel)
 void VpnTrafficGuard::release(Tunnel* tunnel)
 {
     if (!tunnel) return;
+    disconnect(tunnel, nullptr, this, nullptr);
 #ifdef AMNEZIA_DESKTOP
     m_allowedEndpoints.removeAll(tunnel->remoteAddress());
     IpcClient::withInterface([this, &tunnel](QSharedPointer<IpcInterfaceReplica> iface) {
@@ -411,6 +412,17 @@ void VpnTrafficGuard::commit(Tunnel* tunnel)
 {
     if (!tunnel) return;
     applyPolicy(tunnel);
+    connect(tunnel, &Tunnel::activated, this, [this, tunnel] {
+        if (auto p = tunnel->protocol()) {
+            applyKillSwitch(tunnel, p->vpnGateway(), p->vpnLocalAddress());
+        }
+    });
+#ifdef Q_OS_WIN
+    connect(tunnel, &Tunnel::addressesUpdated, this,
+            [this, tunnel](const QString& gw, const QString& la) {
+        applyKillSwitch(tunnel, gw, la);
+    });
+#endif
     tunnel->commit();
 }
 
@@ -428,8 +440,7 @@ void VpnTrafficGuard::swap(Tunnel* from, Tunnel* to)
     if (from) {
         to->setHandoverIfname(from->ifname());
     }
-    applyPolicy(to);
-    to->commit();
+    commit(to);
     if (from) {
         m_allowedEndpoints.removeAll(from->remoteAddress());
 #ifndef Q_OS_WIN
