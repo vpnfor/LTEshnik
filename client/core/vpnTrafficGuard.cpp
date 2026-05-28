@@ -223,7 +223,7 @@ void VpnTrafficGuard::applyKillSwitch(Tunnel* tunnel, const QString &gateway, co
                                 NetworkUtilities::getIPAddress(updatedConfig.value(amnezia::configKey::hostName).toString()));
             QRemoteObjectPendingReply<bool> reply = iface->enableKillSwitch(updatedConfig, 0);
             //TODO: why it takes so long?
-            if (!reply.waitForFinished(5000) || !reply.returnValue()) {
+            if (!reply.waitForFinished(1000) || !reply.returnValue()) {
                 qWarning() << "VpnTrafficGuard::applyKillSwitch: Failed to enable killswitch";
             } else {
                 qDebug() << "VpnTrafficGuard::applyKillSwitch: Successfully enabled killswitch";
@@ -260,7 +260,7 @@ void VpnTrafficGuard::flushAll()
         QRemoteObjectPendingReply<bool> reply = iface->disableKillSwitch();
         m_allowedEndpoints.clear();
         //TODO: why it takes so long?
-        if (!reply.waitForFinished(5000) || !reply.returnValue()) {
+        if (!reply.waitForFinished(1000) || !reply.returnValue()) {
             qWarning() << "VpnTrafficGuard::flushAll: Failed to disable killswitch";
         } else {
             qDebug() << "VpnTrafficGuard::flushAll: Successfully disabled killswitch";
