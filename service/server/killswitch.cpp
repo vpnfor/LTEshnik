@@ -260,7 +260,10 @@ bool KillSwitch::enablePeerTraffic(const QJsonObject &configStr) {
     }
 
     config.m_ifname = configStr.value("ifname").toString();
-    config.m_serverPublicKey = config.m_ifname.isEmpty() ? QStringLiteral("openvpn") : config.m_ifname;
+    const QString protocolName = configStr.value(amnezia::configKey::vpnProto).toString();
+    const QString pubkey = configStr.value(protocolName + "_config_data").toObject()
+                                    .value(amnezia::configKey::serverPubKey).toString();
+    config.m_serverPublicKey = pubkey.isEmpty() ? QStringLiteral("openvpn") : pubkey;
     config.m_serverIpv4Gateway = configStr.value("vpnGateway").toString();
     config.m_serverIpv4AddrIn = configStr.value("vpnServer").toString();
     int vpnAdapterIndex = resolveVpnAdapterIndex(configStr);
