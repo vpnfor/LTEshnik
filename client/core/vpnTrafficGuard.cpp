@@ -37,9 +37,10 @@ bool VpnTrafficGuard::allowEndpoint(const QString &remoteAddress, const QString 
     if (remoteAddress.isEmpty()) {
         return false;
     }
-    if (!m_allowedEndpoints.contains(remoteAddress)) {
-        m_allowedEndpoints.append(remoteAddress);
+    if (m_allowedEndpoints.contains(remoteAddress)) {
+        return true;
     }
+    m_allowedEndpoints.append(remoteAddress);
     return IpcClient::withInterface([&](QSharedPointer<IpcInterfaceReplica> iface) {
         QRemoteObjectPendingReply<bool> reply = iface->addKillSwitchAllowedRange(ifname, QStringList(remoteAddress));
         return reply.waitForFinished(1000) && reply.returnValue();
