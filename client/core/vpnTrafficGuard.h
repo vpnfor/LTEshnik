@@ -21,7 +21,7 @@ public:
 
     void flushAll();
     bool allowEndpoint(const QString &remoteAddress, const QString &ifname = QString());
-    void applyFirewall(const QString &vpnGateway, const QString &vpnLocalAddress);
+    void applyFirewall(Tunnel* tunnel, const QString &vpnGateway, const QString &vpnLocalAddress);
 
     void reserve(Tunnel* tunnel);
     void release(Tunnel* tunnel);
@@ -35,11 +35,11 @@ public:
 
 private:
     void addSplitTunnelRoutes(const QString &gateway, amnezia::RouteMode mode);
+    void finishFirewallHandover(Tunnel* tunnel);
     SecureAppSettingsRepository* m_appSettingsRepository;
     QJsonObject m_config;
     bool m_ipv6RoutingStopped = false;
     QStringList m_allowedEndpoints;
-    QString m_pendingFirewallRevoke;
 };
 
 #endif // VPNTRAFFICGUARD_H

@@ -164,9 +164,29 @@ void VpnTrafficGuard::addSplitTunnelRoutes(const QString &gw, amnezia::RouteMode
 #endif
 }
 
-void VpnTrafficGuard::applyFirewall(const QString &gateway, const QString &localAddress)
+void VpnTrafficGuard::finishFirewallHandover(Tunnel* tunnel)
+{
+#if defined(AMNEZIA_DESKTOP) && defined(Q_OS_WIN)
+    if (!tunnel) return;
+    const QString handoverIfname = tunnel->handoverIfname();
+    if (handoverIfname.isEmpty() || handoverIfname == tunnel->ifname()) {
+        tunnel->clearHandoverIfname();
+        return;
+    }
+    IpcClient::withInterface([&](QSharedPointer<IpcInterfaceReplica> iface) {
+        iface->disableKillSwitchForTunnel(handoverIfname);
+    });
+    tunnel->clearHandoverIfname();
+#else
+    Q_UNUSED(tunnel)
+#endif
+}
+
+void VpnTrafficGuard::applyFirewall(Tunnel* tunnel, const QString &gateway, const QString &localAddress)
 {
 #ifdef AMNEZIA_DESKTOP
+    finishFirewallHandover(tunnel);
+
     QJsonObject updatedConfig = m_config;
     IpcClient::withInterface([&](QSharedPointer<IpcInterfaceReplica> iface) {
 #ifdef Q_OS_WIN
@@ -178,10 +198,6 @@ void VpnTrafficGuard::applyFirewall(const QString &gateway, const QString &local
                 iface->enableKillSwitch(updatedConfig, 0);
             }
             iface->enablePeerTraffic(updatedConfig);
-            if (!m_pendingFirewallRevoke.isEmpty() && m_pendingFirewallRevoke != ifname) {
-                iface->disableKillSwitchForTunnel(m_pendingFirewallRevoke);
-            }
-            m_pendingFirewallRevoke.clear();
         } else {
             QList<QNetworkInterface> netInterfaces = QNetworkInterface::allInterfaces();
             for (int i = 0; i < netInterfaces.size(); i++) {
@@ -242,7 +258,6 @@ void VpnTrafficGuard::flushAll()
         iface->restoreTunnelResolvers();
         QRemoteObjectPendingReply<bool> reply = iface->disableKillSwitch();
         m_allowedEndpoints.clear();
-        m_pendingFirewallRevoke.clear();
         //TODO: why it takes so long?
         if (!reply.waitForFinished(5000) || !reply.returnValue()) {
             qWarning() << "VpnTrafficGuard::flushAll: Failed to disable killswitch";
@@ -410,10 +425,12 @@ void VpnTrafficGuard::tearDown(Tunnel* tunnel)
 void VpnTrafficGuard::swap(Tunnel* from, Tunnel* to)
 {
     if (!to) return;
+    if (from) {
+        to->setHandoverIfname(from->ifname());
+    }
     applyPolicy(to);
     to->commit();
     if (from) {
-        m_pendingFirewallRevoke = from->ifname();
         m_allowedEndpoints.removeAll(from->remoteAddress());
 #ifndef Q_OS_WIN
         IpcClient::withInterface([this](QSharedPointer<IpcInterfaceReplica> iface) {
