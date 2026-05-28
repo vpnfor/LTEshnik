@@ -174,7 +174,7 @@ void VpnTrafficGuard::finishFirewallHandover(Tunnel* tunnel)
         return;
     }
     IpcClient::withInterface([&](QSharedPointer<IpcInterfaceReplica> iface) {
-        iface->disableKillSwitchForTunnel(handoverIfname);
+        iface->disableKillSwitchForTunnel(handoverIfname, QStringList());
     });
     tunnel->clearHandoverIfname();
 #else
@@ -340,10 +340,7 @@ void VpnTrafficGuard::release(Tunnel* tunnel)
 #ifdef AMNEZIA_DESKTOP
     m_allowedEndpoints.removeAll(tunnel->remoteAddress());
     IpcClient::withInterface([this, &tunnel](QSharedPointer<IpcInterfaceReplica> iface) {
-        iface->disableKillSwitchForTunnel(tunnel->ifname());
-#ifndef Q_OS_WIN
-        iface->resetKillSwitchAllowedRange(m_allowedEndpoints);
-#endif
+        iface->disableKillSwitchForTunnel(tunnel->ifname(), m_allowedEndpoints);
     });
 #else
     Q_UNUSED(tunnel)

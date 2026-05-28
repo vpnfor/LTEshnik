@@ -35,7 +35,7 @@ class IpcInterface
     SLOT( bool StopRoutingIpv6() );
 
     SLOT( bool disableKillSwitch() );
-    SLOT( bool disableKillSwitchForTunnel( const QString &ifname ) );
+    SLOT( bool disableKillSwitchForTunnel( const QString &ifname, const QStringList &remainingRanges ) );
     SLOT( bool disableAllTraffic() );
     SLOT( bool refreshKillSwitch( bool enabled ) );
     SLOT( bool addKillSwitchAllowedRange( const QString &ifname, const QStringList ranges ) );

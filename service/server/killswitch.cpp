@@ -159,12 +159,13 @@ bool KillSwitch::disableKillSwitch() {
     return true;
 }
 
-bool KillSwitch::disableKillSwitchForTunnel(const QString& ifname) {
+bool KillSwitch::disableKillSwitchForTunnel(const QString& ifname, const QStringList& remainingRanges) {
 #ifdef Q_OS_WIN
+    Q_UNUSED(remainingRanges)
     return WindowsFirewall::create(this)->disableKillSwitchForTunnel(ifname);
 #else
     Q_UNUSED(ifname)
-    return true;
+    return resetAllowedRange(remainingRanges);
 #endif
 }
 

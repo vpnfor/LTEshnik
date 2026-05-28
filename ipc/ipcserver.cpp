@@ -318,13 +318,13 @@ bool IpcServer::disableKillSwitch()
     return KillSwitch::instance()->disableKillSwitch();
 }
 
-bool IpcServer::disableKillSwitchForTunnel(const QString &ifname)
+bool IpcServer::disableKillSwitchForTunnel(const QString &ifname, const QStringList &remainingRanges)
 {
 #ifdef MZ_DEBUG
     qDebug() << "IpcServer::disableKillSwitchForTunnel" << ifname;
 #endif
 
-    return KillSwitch::instance()->disableKillSwitchForTunnel(ifname);
+    return KillSwitch::instance()->disableKillSwitchForTunnel(ifname, remainingRanges);
 }
 
 bool IpcServer::enablePeerTraffic(const QJsonObject &configStr)

@@ -14,7 +14,7 @@ public:
     bool init();
     bool refresh(bool enabled);
     bool disableKillSwitch();
-    bool disableKillSwitchForTunnel(const QString& ifname);
+    bool disableKillSwitchForTunnel(const QString& ifname, const QStringList& remainingRanges);
     bool disableAllTraffic();
     bool enablePeerTraffic(const QJsonObject &configStr);
     bool enableKillSwitch(const QJsonObject &configStr, int vpnAdapterIndex);
