@@ -183,7 +183,7 @@ bool WireguardUtilsWindows::removeDeviceAddresses(const QString& ipv4Address) {
   }
   DWORD r = DeleteUnicastIpAddressEntry(&row);
   logger.debug() << "Remove" << ipv4Address << "from" << m_ifname << "result:" << r;
-  return true;
+  return r == NO_ERROR || r == ERROR_NOT_FOUND;
 }
 
 bool WireguardUtilsWindows::updatePeer(const InterfaceConfig& config) {
