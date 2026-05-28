@@ -107,23 +107,21 @@ bool WireguardUtilsWindows::addInterface(const InterfaceConfig& config) {
     configString.truncate(peerStart);
   }
 
-  qsizetype dnsStart = configString.indexOf("DNS = ");
-  if (dnsStart >= 0) {
-    qsizetype dnsEnd = configString.indexOf('\n', dnsStart);
-    if (dnsEnd >= 0) {
-      configString.remove(dnsStart, dnsEnd - dnsStart + 1);
-    }
-  }
+  auto stripLine = [&](const QString& key) {
+    qsizetype start = configString.startsWith(key + " = ")
+                          ? 0
+                          : configString.indexOf("\n" + key + " = ");
+    if (start < 0) return;
+    if (start != 0) start += 1;
+    qsizetype end = configString.indexOf('\n', start);
+    if (end < 0) return;
+    configString.remove(start, end - start + 1);
+  };
 
+  stripLine("DNS");
   if (config.m_deferAddressSetup) {
     // Wintun rejects duplicate IPv4; daemon will assign at swap time.
-    qsizetype addressStart = configString.indexOf("Address = ");
-    if (addressStart >= 0) {
-      qsizetype addressEnd = configString.indexOf('\n', addressStart);
-      if (addressEnd >= 0) {
-        configString.remove(addressStart, addressEnd - addressStart + 1);
-      }
-    }
+    stripLine("Address");
   }
 
   m_ifname = config.m_ifname.isEmpty() ? s_defaultInterfaceName() : config.m_ifname;
