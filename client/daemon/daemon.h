@@ -94,7 +94,6 @@ class Daemon : public QObject {
     InterfaceConfig m_config;
   };
   QMap<QString, ConnectionState> m_connections;
-  QHash<IPAddress, int> m_excludedAddrSet;
 };
 
 #endif  // DAEMON_H

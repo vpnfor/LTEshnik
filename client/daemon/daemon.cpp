@@ -156,16 +156,9 @@ bool Daemon::deactivateTunnel(const QString& ifname) {
   const ConnectionState cs = m_connections.value(ifname);
   const InterfaceConfig& config = cs.m_config;
   const bool wasPrimary = (ifname == m_primaryIfname);
-  const bool isLastTunnel = wg && m_tunnels.size() == 1;
 
   if (wg) {
     logger.debug() << "deactivateTunnel" << wg->interfaceName();
-    if (isLastTunnel) {
-      for (const IPAddress& prefix : m_excludedAddrSet.keys()) {
-        wg->deleteExclusionRoute(prefix);
-      }
-      m_excludedAddrSet.clear();
-    }
     wg->deletePeer(config);
     wg->deleteInterface();
     m_tunnels.remove(ifname);
@@ -201,33 +194,15 @@ bool Daemon::parseStringList(const QJsonObject& obj, const QString& name,
 }
 
 bool Daemon::addExclusionRoute(const QString &ifname, const QString &addr) {
-  IPAddress prefix(addr);
-  if (m_excludedAddrSet.contains(prefix)) {
-    m_excludedAddrSet[prefix]++;
-    return true;
-  }
   WireguardUtils* wg = wgutilsFor(ifname);
   if (!wg) wg = primaryWgutils();
-  if (!wg || !wg->addExclusionRoute(prefix)) {
-    return false;
-  }
-  m_excludedAddrSet[prefix] = 1;
-  return true;
+  return wg && wg->addExclusionRoute(IPAddress(addr));
 }
 
 bool Daemon::delExclusionRoute(const QString &ifname, const QString &addr) {
-  IPAddress prefix(addr);
-  if (!m_excludedAddrSet.contains(prefix)) {
-    return false;
-  }
-  if (m_excludedAddrSet[prefix] > 1) {
-    m_excludedAddrSet[prefix]--;
-    return true;
-  }
-  m_excludedAddrSet.remove(prefix);
   WireguardUtils* wg = wgutilsFor(ifname);
   if (!wg) wg = primaryWgutils();
-  return wg && wg->deleteExclusionRoute(prefix);
+  return wg && wg->deleteExclusionRoute(IPAddress(addr));
 }
 
 bool Daemon::addAllowedIp(const QString &ifname, const QString &prefix) {
@@ -489,13 +464,6 @@ bool Daemon::deactivate(bool emitSignals) {
       deactivateTunnel(ifname);
     }
   }
-
-  if (auto* wg = primaryWgutils()) {
-    for (const IPAddress& prefix : m_excludedAddrSet.keys()) {
-      wg->deleteExclusionRoute(prefix);
-    }
-  }
-  m_excludedAddrSet.clear();
 
   if (m_tunnels.contains(primary)) {
     deactivateTunnel(primary);
