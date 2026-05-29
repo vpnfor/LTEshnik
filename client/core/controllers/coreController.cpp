@@ -35,6 +35,8 @@ CoreController::CoreController(const QSharedPointer<VpnConnection> &vpnConnectio
     initAppleController();
     initLogging();
 
+    m_networkManager = new QNetworkAccessManager(this);
+
     m_translator = new QTranslator(this);
     if (m_appSettingsRepository) {
         updateTranslator(m_appSettingsRepository->getAppLanguage());

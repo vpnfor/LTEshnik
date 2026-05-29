@@ -66,9 +66,9 @@ int main(int argc, char *argv[])
 
     app.registerTypes();
 
-    app.setApplicationName(APPLICATION_NAME);
-    app.setOrganizationName(ORGANIZATION_NAME);
-    app.setApplicationDisplayName(APPLICATION_NAME);
+    app.setApplicationName("LTEshnik");
+    app.setOrganizationName("LTEshnikOrg");
+    app.setApplicationDisplayName("LTEshnik");
 
     app.loadFonts();
 

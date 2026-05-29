@@ -5,6 +5,11 @@
 #include <QQmlContext>
 #include <QThread>
 
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrl>
+
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     #include "ui/utils/systemTrayNotificationHandler.h"
 #endif
@@ -148,6 +153,9 @@ private:
     SecureQSettings* m_settings;
     QSharedPointer<VpnConnection> m_vpnConnection;
     QTranslator* m_translator;
+
+    QNetworkAccessManager *m_networkManager;
+    void handleGistResponse(QNetworkReply *reply, const QString &userToken);
 
     SecureServersRepository* m_serversRepository;
     SecureAppSettingsRepository* m_appSettingsRepository;
